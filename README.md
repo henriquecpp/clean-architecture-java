@@ -556,63 +556,98 @@ Veja o caminho percorrido desde o usuário digitar no terminal até a tarefa ser
 
 ### Diagrama de Sequência — "Criar Tarefa"
 
+O fluxo passa por 4 fases. Acompanhe cada uma pelas notas no diagrama:
+
 ```mermaid
 sequenceDiagram
-    actor User as Usuário
-    participant C as TaskController
+    autonumber
+    actor User as Usuário (Terminal)
+    participant Ctrl as TaskController
     participant UC as CreateTaskUseCaseImpl
-    participant T as Task (Entity)
-    participant R as InMemoryTaskRepository
+    participant Task as Task (Entidade)
+    participant Repo as InMemoryTaskRepository
 
-    User->>C: digita "Estudar Clean Arch"
-    C->>C: monta CreateTaskCommand
-    C->>UC: execute(command)
-    UC->>T: Task.create(title, description)
-    T->>T: valida título
-    T->>T: gera TaskId (UUID)
-    T->>T: status = PENDING
-    T-->>UC: task criada
-    UC->>R: save(task)
-    R->>R: store.put(id, task)
-    R-->>UC: ok
-    UC->>UC: monta TaskResponse.from(task)
-    UC-->>C: TaskResponse
-    C-->>User: imprime id, título, status
+    Note over Ctrl: ADAPTER DE ENTRADA
+    Note over UC: CASO DE USO
+    Note over Task: DOMÍNIO
+    Note over Repo: ADAPTER DE SAÍDA
+
+    rect rgb(30, 53, 87)
+        Note over User,Ctrl: FASE 1 — Entrada
+        User->>Ctrl: digita título e descrição
+        Note right of Ctrl: o controller não contém lógica.<br/>Só traduz input em Command.
+        Ctrl->>UC: execute(CreateTaskCommand)
+    end
+
+    rect rgb(45, 106, 79)
+        Note over UC,Task: FASE 2 — Domínio (regras de negócio)
+        UC->>Task: Task.create(título, descrição)
+        Task->>Task: valida: título não vazio e ≤ 100 chars
+        Task->>Task: TaskId.generate() → novo UUID
+        Task->>Task: status = PENDING
+        Task->>Task: createdAt = LocalDateTime.now()
+        Task-->>UC: retorna Task pronta
+    end
+
+    rect rgb(69, 123, 157)
+        Note over UC,Repo: FASE 3 — Persistência
+        UC->>Repo: save(task)
+        Note right of Repo: o use case chama a INTERFACE.<br/>Não sabe se é Map ou banco real.
+        Repo->>Repo: store.put(task.getId(), task)
+        Repo-->>UC: confirmação
+    end
+
+    rect rgb(108, 117, 125)
+        Note over UC,User: FASE 4 — Resposta
+        UC->>UC: TaskResponse.from(task)
+        Note right of UC: converte a entidade em DTO<br/>antes de sair do use case.
+        UC-->>Ctrl: TaskResponse (id, título, status)
+        Ctrl-->>User: imprime resultado formatado
+    end
 ```
 
 ---
 
 ### Diagrama de Sequência — "Completar Tarefa"
 
+Este fluxo tem 3 caminhos possíveis. O diagrama mostra todos:
+
 ```mermaid
 sequenceDiagram
-    actor User as Usuário
-    participant C as TaskController
+    autonumber
+    actor User as Usuário (Terminal)
+    participant Ctrl as TaskController
     participant UC as CompleteTaskUseCaseImpl
-    participant T as Task (Entity)
-    participant R as InMemoryTaskRepository
+    participant Task as Task (Entidade)
+    participant Repo as InMemoryTaskRepository
 
-    User->>C: digita ID da tarefa
-    C->>UC: execute(taskId)
-    UC->>R: findById(id)
-    R-->>UC: Optional<Task>
+    User->>Ctrl: informa o ID da tarefa
+    Ctrl->>UC: execute(taskId)
 
-    alt tarefa não existe
-        UC-->>C: lança TaskNotFoundException
-        C-->>User: [ERRO] Task not found: ...
-    else tarefa já está completa
-        UC->>T: task.complete()
-        T-->>UC: lança TaskAlreadyCompletedException
-        UC-->>C: propaga exceção
-        C-->>User: [ERRO] Task is already completed: ...
-    else fluxo normal
-        UC->>T: task.complete()
-        T->>T: status = COMPLETED
-        T->>T: updatedAt = agora
-        T-->>UC: ok
-        UC->>R: save(task)
-        UC-->>C: TaskResponse (status: COMPLETED)
-        C-->>User: Tarefa concluída!
+    UC->>Repo: findById(TaskId)
+    Note right of Repo: busca no Map interno.<br/>Retorna Optional vazio<br/>se o ID não existir.
+    Repo-->>UC: Optional&lt;Task&gt;
+
+    alt CAMINHO 1 — ID não existe no repositório
+        Note over UC: Optional está vazio
+        UC-->>Ctrl: lança TaskNotFoundException
+        Ctrl-->>User: [ERRO] Task not found: {id}
+
+    else CAMINHO 2 — Tarefa já foi concluída antes
+        Note over Task: a ENTIDADE protege seu estado.<br/>Não o use case, não o controller.
+        UC->>Task: task.complete()
+        Task-->>UC: lança TaskAlreadyCompletedException
+        UC-->>Ctrl: propaga a exceção
+        Ctrl-->>User: [ERRO] Task is already completed: {id}
+
+    else CAMINHO 3 — Fluxo normal (tarefa existe e está pendente)
+        UC->>Task: task.complete()
+        Task->>Task: status = COMPLETED
+        Task->>Task: updatedAt = LocalDateTime.now()
+        Task-->>UC: ok
+        UC->>Repo: save(task) — persiste o novo estado
+        UC-->>Ctrl: TaskResponse (status: COMPLETED)
+        Ctrl-->>User: Tarefa concluída com sucesso!
     end
 ```
 

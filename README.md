@@ -626,7 +626,7 @@ sequenceDiagram
 
     UC->>Repo: findById(TaskId)
     Note right of Repo: busca no Map interno.<br/>Retorna Optional vazio<br/>se o ID não existir.
-    Repo-->>UC: Optional&lt;Task&gt;
+    Repo-->>UC: Optional[Task]
 
     alt CAMINHO 1 — ID não existe no repositório
         Note over UC: Optional está vazio

@@ -9,16 +9,19 @@
 
 1. [O problema que a Clean Architecture resolve](#1-o-problema-que-a-clean-architecture-resolve)
 2. [A ideia central: a Regra da Dependência](#2-a-ideia-central-a-regra-da-dependência)
-3. [As 4 Camadas](#3-as-4-camadas)
-4. [Ports & Adapters — o coração do padrão](#4-ports--adapters--o-coração-do-padrão)
-5. [O fluxo completo de uma operação](#5-o-fluxo-completo-de-uma-operação)
-6. [Estrutura de arquivos comentada](#6-estrutura-de-arquivos-comentada)
-7. [O papel de cada classe](#7-o-papel-de-cada-classe)
-8. [Por que DTOs? Command e Response](#8-por-que-dtos-command-e-response)
-9. [O poder da substituição](#9-o-poder-da-substituição)
-10. [Como executar](#10-como-executar)
-11. [Resumo visual rápido](#11-resumo-visual-rápido)
-12. [Leituras recomendadas](#12-leituras-recomendadas)
+3. [A Regra na Prática — Código Real](#3-a-regra-na-prática--código-real)
+4. [As 4 Camadas](#4-as-4-camadas)
+5. [Por que Java Puro — Screaming Architecture](#5-por-que-java-puro--screaming-architecture)
+6. [Fluxo de Controle vs Inversão de Dependência](#6-fluxo-de-controle-vs-inversão-de-dependência)
+7. [Ports & Adapters — o coração do padrão](#7-ports--adapters--o-coração-do-padrão)
+8. [O fluxo completo de uma operação](#8-o-fluxo-completo-de-uma-operação)
+9. [Estrutura de arquivos comentada](#9-estrutura-de-arquivos-comentada)
+10. [O papel de cada classe](#10-o-papel-de-cada-classe)
+11. [Por que DTOs? Command e Response](#11-por-que-dtos-command-e-response)
+12. [O poder da substituição](#12-o-poder-da-substituição)
+13. [Como executar](#13-como-executar)
+14. [Resumo visual rápido](#14-resumo-visual-rápido)
+15. [Leituras recomendadas](#15-leituras-recomendadas)
 
 ---
 
@@ -113,7 +116,77 @@ graph TD
 
 ---
 
-## 3. As 4 Camadas
+## 3. A Regra na Prática — Código Real
+
+A teoria é clara, mas como ela aparece no código? Veja os `import` de cada camada.
+
+### O domínio não importa nada externo
+
+```java
+// Task.java — camada domain
+package com.example.domain.entity;
+
+import com.example.domain.exception.TaskAlreadyCompletedException; // próprio domínio ✓
+import com.example.domain.valueobject.TaskId;                      // próprio domínio ✓
+import java.time.LocalDateTime;                                    // JDK padrão     ✓
+
+// Nenhum import de: spring, jakarta, hibernate, jackson, jdbc...
+```
+
+### O caso de uso depende apenas de interfaces, nunca de implementações
+
+```java
+// CreateTaskUseCaseImpl.java — camada application
+package com.example.application.usecase;
+
+import com.example.application.port.out.TaskRepositoryPort; // interface ✓ (application define)
+import com.example.domain.entity.Task;                      // domain    ✓
+import com.example.application.dto.CreateTaskCommand;       // dto       ✓
+
+// NÃO importa: InMemoryTaskRepository, JdbcTaskRepository, nenhuma implementação concreta
+```
+
+Esta é a **Inversão de Dependência (DIP)** em ação. O caso de uso chama `repository.save(task)` sem saber — nem se importar — se por baixo é um `Map<>` em memória ou uma chamada SQL a um PostgreSQL.
+
+```
+                    ┌──────────────────────────────────────────┐
+  CreateTaskUseCase │                                          │
+  UseCaseImpl       │  repository.save(task)                   │
+       │            │                                          │
+       │            │  A instrução é dada para a INTERFACE.    │
+       │            │  Quem vai executar é resolvido           │
+       │            │  apenas em tempo de execução             │
+       ▼            │  (no Main.java).                         │
+  TaskRepository    │                                          │
+  Port <<interface>>│                                          │
+       ▲            └──────────────────────────────────────────┘
+       │
+       │  implementa
+       │
+  InMemoryTask          ← hoje
+  Repository
+  (ou JdbcTask          ← amanhã, sem mudar o use case
+  Repository)
+```
+
+### O adapter conhece a interface, mas o use case não conhece o adapter
+
+```java
+// InMemoryTaskRepository.java — camada adapter
+package com.example.adapter.repository;
+
+import com.example.application.port.out.TaskRepositoryPort; // depende da interface ✓
+import com.example.domain.entity.Task;                      // depende do domain   ✓
+import java.util.LinkedHashMap;                             // detalhe técnico aqui ✓
+
+// O adapter sabe que existe a interface. A interface não sabe que o adapter existe.
+```
+
+Isso é o que torna a substituição do banco de dados possível sem tocar no domínio.
+
+---
+
+## 4. As 4 Camadas
 
 ### Camada 1 — Domain (Domínio)
 
@@ -228,7 +301,194 @@ graph TD
 
 ---
 
-## 4. Ports & Adapters — o coração do padrão
+## 5. Por que Java Puro — Screaming Architecture
+
+### O que é Screaming Architecture?
+
+Uncle Bob cunhou o termo para descrever um sistema cuja estrutura de pastas **grita** o que ele faz, não qual framework ele usa.
+
+Compare as duas estruturas abaixo:
+
+```
+❌ Estrutura que grita "Spring Boot"      ✅ Estrutura que grita "Gerenciador de Tarefas"
+
+com/example/                              com/example/
+├── config/                               ├── domain/
+│   └── AppConfig.java                    │   └── entity/
+├── controller/                           │       └── Task.java         ← O QUE o sistema é
+│   └── TaskController.java               ├── application/
+├── service/                              │   ├── port/in/
+│   └── TaskService.java                  │   │   └── CreateTaskUseCase ← O QUE ele faz
+├── repository/                           │   └── usecase/
+│   └── TaskRepository.java              │       └── CreateTask...Impl
+└── model/                               ├── adapter/
+    └── Task.java                         │   ├── controller/
+                                          │   └── repository/
+  Abre a pasta → vê o framework.          └── Main.java
+  Fecha a pasta → não sabe o negócio.
+                                           Abre a pasta → vê o negócio.
+                                           O framework é um detalhe invisível.
+```
+
+### A ausência de anotações é intencional
+
+Em um projeto Spring típico, as classes do domínio ficam assim:
+
+```java
+// ❌ domínio acoplado ao framework
+@Entity
+@Table(name = "tasks")
+public class Task {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private String id;
+
+    @Column(nullable = false, length = 100)
+    private String title;
+
+    // Hibernate exige construtor padrão — quebra o encapsulamento
+    public Task() {}
+}
+```
+
+Neste projeto, o domínio é Java puro:
+
+```java
+// ✅ domínio livre de frameworks
+public class Task {
+
+    private final TaskId id;
+    private String title;
+    private Status status;
+
+    // Construção controlada — nenhuma dependência externa
+    public static Task create(String title, String description) {
+        return new Task(TaskId.generate(), title, description, LocalDateTime.now());
+    }
+}
+```
+
+**O que a ausência de anotações garante:**
+
+| Consequência | Por quê |
+|---|---|
+| Testes unitários sem contexto Spring | Basta `new Task(...)` — zero configuração |
+| Sem acoplamento com fornecedor (vendor lock-in) | Migrar de Hibernate para JOOQ não toca o domínio |
+| Construtor controlado | Entidade nunca fica em estado inválido |
+| Leitura mais clara | O código expressa negócio, não infraestrutura |
+
+### Testabilidade como consequência natural
+
+Como a `Task` não depende de nada externo, qualquer teste de negócio é instantâneo:
+
+```java
+// Teste da regra "tarefa concluída não pode ser concluída novamente"
+// Sem banco, sem Spring, sem mock — Java puro
+@Test
+void shouldThrowWhenCompletingAlreadyCompletedTask() {
+    Task task = Task.create("Estudar", "Clean Architecture");
+    task.complete();
+
+    assertThrows(TaskAlreadyCompletedException.class, task::complete);
+}
+```
+
+---
+
+## 6. Fluxo de Controle vs Inversão de Dependência
+
+Este é o conceito mais confuso para quem está aprendendo. Vamos separar as duas coisas.
+
+### Fluxo de controle — quem chama quem em tempo de execução
+
+```
+  Usuário
+     │
+     ▼
+ TaskController          ← recebe a ação
+     │
+     ▼
+ CreateTaskUseCase       ← decide o que fazer
+     │
+     ▼
+ TaskRepositoryPort      ← pede para salvar
+     │
+     ▼
+ InMemoryTaskRepository  ← executa de fato
+```
+
+O fluxo segue de fora para dentro: do usuário até o repositório.
+
+### Inversão de Dependência — quem conhece quem no código-fonte
+
+```
+ TaskController          conhece → CreateTaskUseCase (interface)  ✓
+ CreateTaskUseCaseImpl   conhece → TaskRepositoryPort (interface) ✓
+ InMemoryTaskRepository  conhece → TaskRepositoryPort (interface) ✓
+
+ TaskRepositoryPort      NÃO conhece → InMemoryTaskRepository    ✓
+ CreateTaskUseCaseImpl   NÃO conhece → InMemoryTaskRepository    ✓
+```
+
+As dependências de código-fonte apontam para **dentro** (para as interfaces), enquanto o fluxo de execução vai para **fora** (do use case para o repositório concreto). Essa inversão é o que mantém o domínio isolado.
+
+### Como o Main.java conecta tudo — "de dentro para fora"
+
+O Composition Root instancia na ordem inversa do fluxo de controle: começa pela borda (infraestrutura) e termina na entrada (controller). A cada passo, a implementação concreta é injetada na interface.
+
+```java
+// Main.java — passo a passo comentado
+
+// PASSO 1 — cria a implementação concreta do repositório
+// (o único momento em que InMemoryTaskRepository é mencionado)
+TaskRepositoryPort repository = new InMemoryTaskRepository();
+//                 ↑                   ↑
+//           interface              implementação concreta
+//           (quem use case        (detalhe técnico que
+//            conhece)              fica escondido aqui)
+
+
+// PASSO 2 — injeta o repositório nos casos de uso
+// O use case recebe a INTERFACE — nunca sabe qual implementação está dentro
+var createTask   = new CreateTaskUseCaseImpl(repository);
+var completeTask = new CompleteTaskUseCaseImpl(repository);
+// ...
+
+
+// PASSO 3 — injeta os casos de uso no controller
+// O controller recebe INTERFACES de use case — não sabe qual implementação
+TaskController controller = new TaskController(
+    createTask, getTask, listTasks, completeTask, deleteTask
+);
+
+
+// PASSO 4 — inicia o fluxo de execução
+controller.run();
+// A partir daqui, o fluxo de controle segue para dentro:
+// controller → use case → repository
+```
+
+### Diagrama unificando os dois fluxos
+
+```
+  MONTAGEM (Main.java)           EXECUÇÃO (runtime)
+  de dentro para fora ►          de fora para dentro ►
+
+  InMemoryRepository   ──────►   InMemoryRepository
+         ↓ injetado em                  ↑ chamado por
+  CreateTaskUseCase    ──────►   CreateTaskUseCaseImpl
+         ↓ injetado em                  ↑ chamado por
+  TaskController       ──────►   TaskController
+                                        ↑ chamado por
+                                    Usuário
+```
+
+> **Resumo:** O `Main.java` monta o grafo de dependências de trás para frente. Em runtime, o fluxo percorre esse grafo de frente para trás. As interfaces são as "juntas" que permitem isso sem que as camadas internas saibam das externas.
+
+---
+
+## 7. Ports & Adapters — o coração do padrão
 
 A metáfora é a de um hexágono (por isso também chamada de **Arquitetura Hexagonal**): o sistema tem "portas" para se comunicar com o mundo externo, e "adapters" que encaixam nessas portas.
 
@@ -290,7 +550,7 @@ graph LR
 
 ---
 
-## 5. O fluxo completo de uma operação
+## 8. O fluxo completo de uma operação
 
 Veja o caminho percorrido desde o usuário digitar no terminal até a tarefa ser salva e a resposta retornar.
 
@@ -358,68 +618,91 @@ sequenceDiagram
 
 ---
 
-## 6. Estrutura de arquivos comentada
+## 9. Estrutura de arquivos comentada
+
+A árvore abaixo mostra **o que cada arquivo é** e **por que existe naquele lugar**. Use-a como mapa ao navegar no código.
 
 ```
 clean-architecture-java/
 │
-├── pom.xml                              ← build Maven (Java 21, sem dependências!)
+├── pom.xml                         ← único arquivo de build; zero dependências externas
+├── .gitignore
 │
 └── src/main/java/com/example/
     │
-    ├── domain/                          ← CAMADA 1: regras de negócio puras
-    │   │
+    │   ┌─────────────────────────────────────────────────────────────┐
+    │   │  CAMADA 1 — DOMAIN                                          │
+    │   │  Regra: não importa nada de fora deste pacote               │
+    │   └─────────────────────────────────────────────────────────────┘
+    ├── domain/
     │   ├── entity/
-    │   │   └── Task.java                ← entidade principal
-    │   │                                   comportamentos: create, complete, start
+    │   │   └── Task.java                ← entidade raiz do agregado
+    │   │                                   comportamentos: create · complete · start
+    │   │                                   protege seu próprio estado (sem setters)
     │   │
     │   ├── valueobject/
-    │   │   └── TaskId.java              ← ID imutável (UUID encapsulado)
-    │   │                                   não é um String — tem significado de negócio
+    │   │   └── TaskId.java              ← UUID encapsulado em tipo com significado
+    │   │                                   imutável · igualdade por valor, não referência
     │   │
     │   └── exception/
-    │       ├── TaskNotFoundException.java
-    │       └── TaskAlreadyCompletedException.java
+    │       ├── TaskNotFoundException.java          ← lançada pelos use cases
+    │       └── TaskAlreadyCompletedException.java  ← lançada pela própria entidade
     │
-    ├── application/                     ← CAMADA 2: casos de uso
-    │   │
+    │   ┌─────────────────────────────────────────────────────────────┐
+    │   │  CAMADA 2 — APPLICATION                                     │
+    │   │  Regra: importa domain; define interfaces para fora         │
+    │   └─────────────────────────────────────────────────────────────┘
+    ├── application/
     │   ├── port/
-    │   │   ├── in/                      ← portas de ENTRADA
-    │   │   │   ├── CreateTaskUseCase.java      ← interface
-    │   │   │   ├── GetTaskUseCase.java         ← interface
-    │   │   │   ├── ListTasksUseCase.java       ← interface
-    │   │   │   ├── CompleteTaskUseCase.java    ← interface
-    │   │   │   └── DeleteTaskUseCase.java      ← interface
+    │   │   ├── in/                      ← PORTAS DE ENTRADA
+    │   │   │   │                           o que o sistema oferece para o mundo
+    │   │   │   ├── CreateTaskUseCase.java      ← interface (adapter chama)
+    │   │   │   ├── GetTaskUseCase.java
+    │   │   │   ├── ListTasksUseCase.java
+    │   │   │   ├── CompleteTaskUseCase.java
+    │   │   │   └── DeleteTaskUseCase.java
     │   │   │
-    │   │   └── out/                     ← portas de SAÍDA
-    │   │       └── TaskRepositoryPort.java     ← interface
+    │   │   └── out/                     ← PORTAS DE SAÍDA
+    │   │       │                           o que o sistema precisa do mundo
+    │   │       └── TaskRepositoryPort.java    ← interface (adapter implementa)
     │   │
     │   ├── dto/
-    │   │   ├── CreateTaskCommand.java   ← dado de entrada (imutável, record)
-    │   │   └── TaskResponse.java        ← dado de saída (imutável, record)
+    │   │   ├── CreateTaskCommand.java   ← entrada: imutável · valida no construtor
+    │   │   └── TaskResponse.java        ← saída:  imutável · não expõe Task diretamente
     │   │
-    │   └── usecase/                     ← implementações dos casos de uso
+    │   └── usecase/                     ← implementações: orquestram domain + port out
     │       ├── CreateTaskUseCaseImpl.java
     │       ├── GetTaskUseCaseImpl.java
     │       ├── ListTasksUseCaseImpl.java
     │       ├── CompleteTaskUseCaseImpl.java
     │       └── DeleteTaskUseCaseImpl.java
     │
-    ├── adapter/                         ← CAMADA 3: adaptadores
-    │   │
+    │   ┌─────────────────────────────────────────────────────────────┐
+    │   │  CAMADA 3 — ADAPTERS                                        │
+    │   │  Regra: conhece application e domain; implementa as ports   │
+    │   └─────────────────────────────────────────────────────────────┘
+    ├── adapter/
     │   ├── controller/
-    │   │   └── TaskController.java      ← adapter de ENTRADA: lê do terminal
+    │   │   └── TaskController.java      ← adapter de ENTRADA
+    │   │                                   lê terminal · chama port/in · imprime resultado
+    │   │                                   substituível por HttpController sem tocar use cases
     │   │
     │   └── repository/
-    │       └── InMemoryTaskRepository.java  ← adapter de SAÍDA: guarda em Map<>
+    │       └── InMemoryTaskRepository.java  ← adapter de SAÍDA
+    │                                           implementa TaskRepositoryPort com Map<>
+    │                                           substituível por JdbcRepository sem tocar use cases
     │
-    └── Main.java                        ← CAMADA 4: Composition Root
-                                            único ponto que instancia e conecta tudo
+    │   ┌─────────────────────────────────────────────────────────────┐
+    │   │  CAMADA 4 — COMPOSITION ROOT                                │
+    │   │  Regra: único ponto que instancia tudo; nunca reutilizado   │
+    │   └─────────────────────────────────────────────────────────────┘
+    └── Main.java                        ← monta o grafo de dependências manualmente
+                                            em Spring Boot, o container faz este trabalho
 ```
 
 ---
 
-## 7. O papel de cada classe
+## 10. O papel de cada classe
 
 ```mermaid
 classDiagram
@@ -497,7 +780,7 @@ classDiagram
 
 ---
 
-## 8. Por que DTOs? Command e Response
+## 11. Por que DTOs? Command e Response
 
 Um erro comum é passar a entidade de domínio direto entre as camadas. Veja o problema:
 
@@ -540,7 +823,7 @@ Um erro comum é passar a entidade de domínio direto entre as camadas. Veja o p
 
 ---
 
-## 9. O poder da substituição
+## 12. O poder da substituição
 
 ### Trocar o banco de dados
 
@@ -615,9 +898,10 @@ graph LR
 
 ---
 
-## 10. Como executar
+## 13. Como executar
 
 ### Pré-requisitos
+
 - Java 21+
 - Maven 3.8+
 
@@ -665,7 +949,7 @@ Tarefa criada com sucesso!
 
 ---
 
-## 11. Resumo visual rápido
+## 14. Resumo visual rápido
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -695,7 +979,7 @@ Tarefa criada com sucesso!
 
 ---
 
-## 12. Leituras recomendadas
+## 15. Leituras recomendadas
 
 | Recurso | Por que ler |
 | --- | --- |
